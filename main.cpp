@@ -49,8 +49,8 @@ static const char* kHelp =
 //     деструктор не вызовется и память утечёт. Автоматически за кучу отвечаем мы.
 //  3. Объекты внутри блока { ... } уничтожаются при выходе из этого блока, а не в конце функции.
 static void lifetimeDemo() {
-    Map::trace = true;
-    Hero::trace = true;
+    Map::setTrace(true);
+    Hero::setTrace(true);
 
     std::cout << "1) Объекты на стеке в main-функции демонстрации:\n";
     Map stackMap(6, 12);          // создан первым -> уничтожен последним
@@ -78,7 +78,7 @@ static void lifetimeDemo() {
 
 // Ошибка при загрузке: Map не создаётся, память освобождается сама.
 static void loadDemo(const std::string& path) {
-    Map::trace = true;
+    Map::setTrace(true);
     std::optional<Map> level;
     LoadError e = Map::load(path, level);
     std::cout << path << " -> " << describe(e) << (level ? " (карта создана)" : " (карта не создана)") << '\n';
@@ -116,7 +116,7 @@ int main(int argc, char** argv) {
     Hero hero(1, 1, 100);
 
     std::cout << "Добро пожаловать в подземелье!\n" << kHelp << '\n';
-    map.print(hero.y, hero.x);
+    map.print(hero.y(), hero.x());
 
     int turn = 1;
     std::string line;
@@ -137,7 +137,7 @@ int main(int argc, char** argv) {
         } else if (cmd == "look") {
             std::cout << "Ты осмотрелся\n";
             ++turn;
-            map.print(hero.y, hero.x);
+            map.print(hero.y(), hero.x());
         } else {
             Direction dir;
             const char* dirName = "";
@@ -148,21 +148,19 @@ int main(int argc, char** argv) {
             Position next = hero.peek(dir);
             if (!map.inBounds(next.y, next.x)) {
                 std::cout << "Нельзя выйти за границу карты!\n";
-                map.print(hero.y, hero.x);
+                map.print(hero.y(), hero.x());
                 continue;
             }
             if (!map.isPassable(next.y, next.x)) {
                 std::cout << "Через стены ходить нельзя!\n";
-                map.print(hero.y, hero.x);
+                map.print(hero.y(), hero.x());
                 continue;
             }
             hero.move(dir);
-            char c = map.get(hero.y, hero.x);
-            if (c == 'G') {
-                hero.gold += 1;
-                map.set(hero.y, hero.x, '.');
-                std::cout << "Вы нашли золото. Ваше золото: " << hero.gold << '\n';
-            } else if (c == 'E') {
+            if (map.collectGold(hero.y(), hero.x())) {
+                hero.addGold(1);
+                std::cout << "Вы нашли золото. Ваше золото: " << hero.gold() << '\n';
+            } else if (map.get(hero.y(), hero.x()) == 'E') {
                 std::cout << "Вы нашли выход на следующий этаж (переход будет добавлен позже).\n";
             }
             ++turn;

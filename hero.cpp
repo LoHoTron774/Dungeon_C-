@@ -2,29 +2,31 @@
 
 #include <iomanip>
 #include <iostream>
+#include <stdexcept>
 
-bool Hero::trace = false;
+bool Hero::trace_ = false;
+
+void Hero::setTrace(bool enabled) { trace_ = enabled; }
+bool Hero::traceEnabled() { return trace_; }
 
 Hero::Hero() {
-    if (trace) std::cout << "  [Hero ctor по умолчанию] this=" << this << '\n';
+    if (trace_) std::cout << "  [Hero ctor по умолчанию] this=" << this << '\n';
 }
 
-// Список инициализации: поля получают значения сразу при создании, а не присваиванием в теле.
 Hero::Hero(int startY, int startX, int hp, int startGold)
-    : y(startY), x(startX), health(hp), maxHealth(hp), gold(startGold) {
-    if (trace) std::cout << "  [Hero ctor (" << startY << "," << startX << ")] this=" << this << '\n';
+    : y_(startY), x_(startX), health_(hp), maxHealth_(hp), gold_(startGold) {
+    // Объект с некорректным состоянием не должен существовать вообще.
+    if (hp <= 0) throw std::invalid_argument("здоровье героя должно быть положительным");
+    if (startGold < 0) throw std::invalid_argument("золото не может быть отрицательным");
+    if (trace_) std::cout << "  [Hero ctor (" << startY << "," << startX << ")] this=" << this << '\n';
 }
 
 Hero::~Hero() {
-    if (trace) std::cout << "  [Hero dtor] this=" << this << '\n';
-}
-
-static void printHeroLine(const Hero* h) {
-    std::cout << "Герой в клетке (" << h->y << ", " << h->x << ")\n";
+    if (trace_) std::cout << "  [Hero dtor] this=" << this << '\n';
 }
 
 Position Hero::peek(Direction d) const {
-    Position p{y, x};
+    Position p{y_, x_};
     switch (d) {
         case Direction::North: --p.y; break;
         case Direction::South: ++p.y; break;
@@ -35,27 +37,29 @@ Position Hero::peek(Direction d) const {
 }
 
 Hero& Hero::move(Direction d) {
-    // Вызов hero.move(dir) компилятор превращает в Hero::move(&hero, dir): адрес объекта
-    // передаётся скрытым первым параметром this, а y и x внутри метода — это this->y и this->x.
-    // В отличие от C-функции move_hero(&hero, dir), объект не перечисляется в списке параметров:
-    // он «стоит перед точкой». Методы общие для всех героев, а this у каждого вызова свой.
-    Position p = this->peek(d);
-    this->y = p.y;
-    this->x = p.x;
+    const Position p = peek(d);
+    y_ = p.y;
+    x_ = p.x;
     return *this;
 }
 
 void Hero::takeDamage(int amount) {
-    health -= amount;
-    if (health < 0) health = 0;
+    if (amount < 0) throw std::invalid_argument("урон не может быть отрицательным");
+    health_ -= amount;
+    if (health_ < 0) health_ = 0;
+}
+
+void Hero::addGold(int amount) {
+    if (amount < 0) throw std::invalid_argument("нельзя добавить отрицательное количество золота");
+    gold_ += amount;
 }
 
 void Hero::printStatus() const {
-    double percent = maxHealth > 0 ? static_cast<double>(health) / maxHealth * 100.0 : 0.0;
+    const double percent = maxHealth_ > 0 ? static_cast<double>(health_) / maxHealth_ * 100.0 : 0.0;
     std::cout << "____Характеристики героя____\n"
-              << "Здоровье: " << health << " / " << maxHealth
+              << "Здоровье: " << health_ << " / " << maxHealth_
               << " (" << std::fixed << std::setprecision(1) << percent << "%)\n"
               << std::defaultfloat
-              << "Золото: " << gold << "\n";
-    printHeroLine(this);
+              << "Золото: " << gold_ << "\n"
+              << "Герой в клетке (" << y_ << ", " << x_ << ")\n";
 }

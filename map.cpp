@@ -15,7 +15,10 @@
 #define COLOR_POTION  "\x1b[35m"
 #define COLOR_RESET   "\x1b[0m"
 
-bool Map::trace = false;
+bool Map::trace_ = false;
+
+void Map::setTrace(bool enabled) { trace_ = enabled; }
+bool Map::traceEnabled() { return trace_; }
 
 const char* describe(LoadError e) {
     switch (e) {
@@ -33,28 +36,36 @@ Map::Map(int rowCount, int colCount) {
         throw std::invalid_argument("недопустимый размер карты");
     // Если new[] бросит bad_alloc, конструктор не завершится, объект не будет считаться созданным,
     // и деструктор для него не вызовется — но и утекать нечему: память не выделена.
-    cells = new char[static_cast<size_t>(rowCount) * colCount];
-    rows = rowCount;
-    cols = colCount;
-    std::fill(cells, cells + static_cast<size_t>(rows) * cols, '.');
-    if (trace) std::cout << "  [Map ctor " << rows << "x" << cols << "] this=" << this << '\n';
+    cells_ = new char[static_cast<size_t>(rowCount) * colCount];
+    rows_ = rowCount;
+    cols_ = colCount;
+    std::fill(cells_, cells_ + static_cast<size_t>(rows_) * cols_, '.');
+    if (trace_) std::cout << "  [Map ctor " << rows_ << "x" << cols_ << "] this=" << this << '\n';
 }
 
 Map::~Map() {
-    if (trace) std::cout << "  [Map dtor " << rows << "x" << cols << "] this=" << this << '\n';
-    delete[] cells;   // единственное место, где освобождается память карты
+    if (trace_) std::cout << "  [Map dtor " << rows_ << "x" << cols_ << "] this=" << this << '\n';
+    delete[] cells_;   // единственное место, где освобождается память карты
 }
 
 bool Map::inBounds(int y, int x) const {
-    return y >= 0 && y < rows && x >= 0 && x < cols;
+    return y >= 0 && y < rows_ && x >= 0 && x < cols_;
 }
 
 char Map::get(int y, int x) const {
-    return cells[static_cast<size_t>(y) * cols + x];
+    if (!inBounds(y, x)) throw std::out_of_range("клетка вне карты");
+    return cells_[static_cast<size_t>(y) * cols_ + x];
 }
 
 void Map::set(int y, int x, char c) {
-    cells[static_cast<size_t>(y) * cols + x] = c;
+    if (!inBounds(y, x)) throw std::out_of_range("клетка вне карты");
+    cells_[static_cast<size_t>(y) * cols_ + x] = c;
+}
+
+bool Map::collectGold(int y, int x) {
+    if (!inBounds(y, x) || get(y, x) != 'G') return false;
+    set(y, x, '.');
+    return true;
 }
 
 bool Map::isPassable(int y, int x) const {
@@ -62,8 +73,8 @@ bool Map::isPassable(int y, int x) const {
 }
 
 void Map::print(int heroY, int heroX) const {
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
+    for (int y = 0; y < rows_; ++y) {
+        for (int x = 0; x < cols_; ++x) {
             if (y == heroY && x == heroX) {
                 std::cout << COLOR_PLAYER << '@' << COLOR_RESET;
                 continue;
@@ -85,7 +96,7 @@ void Map::print(int heroY, int heroX) const {
 }
 
 bool Map::canReachExit(int startY, int startX) const {
-    std::vector<char> visited(static_cast<size_t>(rows) * cols, 0);   // vector сам освободит память
+    std::vector<char> visited(static_cast<size_t>(rows_) * cols_, 0);   // vector сам освободит память
     std::vector<std::pair<int, int>> stack;
     stack.emplace_back(startY, startX);
     const int dy[4] = {-1, 1, 0, 0};
@@ -95,31 +106,31 @@ bool Map::canReachExit(int startY, int startX) const {
         auto [y, x] = stack.back();
         stack.pop_back();
         if (!inBounds(y, x)) continue;
-        size_t i = static_cast<size_t>(y) * cols + x;
-        if (visited[i] || cells[i] == '#') continue;
+        size_t i = static_cast<size_t>(y) * cols_ + x;
+        if (visited[i] || cells_[i] == '#') continue;
         visited[i] = 1;
-        if (cells[i] == 'E') return true;
+        if (cells_[i] == 'E') return true;
         for (int k = 0; k < 4; ++k) stack.emplace_back(y + dy[k], x + dx[k]);
     }
     return false;
 }
 
 void Map::generate(std::mt19937& rng) {
-    std::fill(cells, cells + static_cast<size_t>(rows) * cols, '.');
+    std::fill(cells_, cells_ + static_cast<size_t>(rows_) * cols_, '.');
 
-    for (int y = 0; y < rows; ++y)
-        for (int x = 0; x < cols; ++x)
-            if (y == 0 || y == rows - 1 || x == 0 || x == cols - 1) set(y, x, '#');
+    for (int y = 0; y < rows_; ++y)
+        for (int x = 0; x < cols_; ++x)
+            if (y == 0 || y == rows_ - 1 || x == 0 || x == cols_ - 1) set(y, x, '#');
 
     std::vector<std::pair<int, int>> free;
-    for (int y = 1; y < rows - 1; ++y)
-        for (int x = 1; x < cols - 1; ++x)
+    for (int y = 1; y < rows_ - 1; ++y)
+        for (int x = 1; x < cols_ - 1; ++x)
             if (!(y == 1 && x == 1)) free.emplace_back(y, x);
     std::shuffle(free.begin(), free.end(), rng);
 
     size_t pos = 0;
     size_t wallCount = std::min(free.size() > 1 ? free.size() - 1 : 0,
-                                static_cast<size_t>((rows - 2) * (cols - 2) * 0.35));
+                                static_cast<size_t>((rows_ - 2) * (cols_ - 2) * 0.35));
     std::vector<std::pair<int, int>> walls;
     for (size_t i = 0; i < wallCount; ++i, ++pos) {
         set(free[pos].first, free[pos].second, '#');
