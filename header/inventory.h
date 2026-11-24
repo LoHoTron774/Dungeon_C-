@@ -3,6 +3,7 @@
 
 #include <iosfwd>
 #include <optional>
+#include <string>
 #include <vector>
 
 enum class PotionType {
@@ -37,7 +38,7 @@ public:
     int slotCount() const { return static_cast<int>(slots_.size()); }
     std::vector<InventorySlot> slots() const { return slots_; }
 
-    static const char* name(PotionType type);
+    static std::string name(PotionType type);
     void print(std::ostream& out) const;
 
 private:

@@ -44,9 +44,12 @@ void lifetimeDemo() {
 
 void loadDemo(const std::string& path) {
     enableTrace();
-    std::unique_ptr<Map> level;
-    const LoadError e = Map::load(path, level);
-    std::cout << path << " -> " << describe(e) << (level ? " (карта создана)" : " (карта не создана)") << '\n';
+    try {
+        const std::unique_ptr<Map> level = Map::load(path);
+        std::cout << path << " -> Уровень загружен (карта создана)\n";
+    } catch (const LevelLoadError& e) {
+        std::cout << path << " -> " << e.what() << " (карта не создана)\n";
+    }
 }
 
 namespace {

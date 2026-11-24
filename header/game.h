@@ -11,6 +11,7 @@
 #include "hero.h"
 #include "inventory.h"
 #include "map.h"
+#include "monster_queries.h"
 #include "monsters.h"
 #include "renderer.h"
 #include "savefile.h"
@@ -42,6 +43,8 @@ private:
     void cheatHeroExit();
     void cheatDamage();
     void cheatKill();
+    void cheatRule(const std::string& name);
+    void showSummary() const;
 
     std::unique_ptr<Map> buildFloor(int rows, int cols, int floor);
     std::vector<std::unique_ptr<Monster>> buildMonsters(const Map& map, Position heroPos, int floor);
@@ -51,7 +54,7 @@ private:
     bool saveGame();
     void loadGame();
     SaveData makeSaveData() const;
-    bool applySave(const SaveData& data, std::string& error);
+    void applySave(const SaveData& data);
 
     bool onHeroEntered();
     void removeDead();

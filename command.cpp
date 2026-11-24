@@ -1,8 +1,13 @@
 #include "header/command.h"
 
+#include <algorithm>
 #include <cctype>
-#include <climits>
+#include <charconv>
+#include <optional>
+#include <variant>
 #include <vector>
+
+#include "header/move_rules.h"
 
 namespace {
 
@@ -20,36 +25,44 @@ std::vector<std::string> splitWords(const std::string& line) {
     return words;
 }
 
-bool parseDirection(const std::string& w, Direction& dir, const char*& name) {
-    if (w == "north" || w == "n") { dir = Direction::North; name = "север";  return true; }
-    if (w == "south" || w == "s") { dir = Direction::South; name = "юг";     return true; }
-    if (w == "east"  || w == "e") { dir = Direction::East;  name = "восток"; return true; }
-    if (w == "west"  || w == "w") { dir = Direction::West;  name = "запад";  return true; }
-    return false;
+struct ParsedDirection {
+    Direction direction;
+    std::string name;
+};
+
+std::optional<ParsedDirection> parseDirection(const std::string& w) {
+    if (w == "north" || w == "n") return ParsedDirection{Direction::North, "север"};
+    if (w == "south" || w == "s") return ParsedDirection{Direction::South, "юг"};
+    if (w == "east"  || w == "e") return ParsedDirection{Direction::East,  "восток"};
+    if (w == "west"  || w == "w") return ParsedDirection{Direction::West,  "запад"};
+    return std::nullopt;
 }
 
-bool parseStatus(const std::string& w, HeroStatus& st) {
-    if (w == "poisoned")  { st = HeroStatus::Poisoned;  return true; }
-    if (w == "blinded")   { st = HeroStatus::Blinded;   return true; }
-    if (w == "invisible") { st = HeroStatus::Invisible; return true; }
-    if (w == "petrified") { st = HeroStatus::Petrified; return true; }
-    if (w == "burning")   { st = HeroStatus::Burning;   return true; }
-    if (w == "sleep")     { st = HeroStatus::Sleep;     return true; }
-    return false;
+std::optional<HeroStatus> parseStatus(const std::string& w) {
+    if (w == "poisoned")  return HeroStatus::Poisoned;
+    if (w == "blinded")   return HeroStatus::Blinded;
+    if (w == "invisible") return HeroStatus::Invisible;
+    if (w == "petrified") return HeroStatus::Petrified;
+    if (w == "burning")   return HeroStatus::Burning;
+    if (w == "sleep")     return HeroStatus::Sleep;
+    return std::nullopt;
 }
 
-int parseNumber(const std::string& s, int& out) {
-    long long value = 0;
-    for (char c : s) {
-        if (c < '0' || c > '9') return -1;
-        value = value * 10 + (c - '0');
-        if (value > INT_MAX) return -2;
-    }
-    out = static_cast<int>(value);
-    return s.empty() ? -1 : 1;
+enum class NumberError { NotANumber, TooLarge };
+
+std::variant<int, NumberError> parseNumber(const std::string& s) {
+    const bool onlyDigits = !s.empty() && std::all_of(s.begin(), s.end(), [](unsigned char c) {
+        return std::isdigit(c) != 0;
+    });
+    if (!onlyDigits) return NumberError::NotANumber;
+
+    int value = 0;
+    const auto result = std::from_chars(s.data(), s.data() + s.size(), value);
+    if (result.ec == std::errc::result_out_of_range) return NumberError::TooLarge;
+    return value;
 }
 
-constexpr const char* kStatusList = "poisoned, blinded, invisible, petrified, burning, sleep";
+const std::string kStatusList = "poisoned, blinded, invisible, petrified, burning, sleep";
 
 Command error(const std::string& text, bool showInventory = false) {
     Command c;
@@ -80,27 +93,36 @@ Command CommandParser::parse(const std::string& line) const {
     if (first == "hesoyam")   { cmd.type = CommandType::CheatHesoyam; return cmd; }
     if (first == "damage")    { cmd.type = CommandType::CheatDamage; return cmd; }
     if (first == "kill")      { cmd.type = CommandType::CheatKill; return cmd; }
+    if (first == "summary")   { cmd.type = CommandType::Summary; return cmd; }
 
     if (first == "use") {
         if (words.size() < 2)
             return error("[Ошибка] команда use требует номер предмета.\nИспользуйте: use N (N - номер предмета)", true);
-        int n = 0;
-        switch (parseNumber(words[1], n)) {
-            case -1: return error("[Ошибка] аргумент должен содержать только цифры.");
-            case -2: return error("[Ошибка] число слишком большое.");
-            default: break;
-        }
+        const std::variant<int, NumberError> number = parseNumber(words[1]);
+        if (const NumberError* e = std::get_if<NumberError>(&number))
+            return error(*e == NumberError::TooLarge ? "[Ошибка] число слишком большое."
+                                                    : "[Ошибка] аргумент должен содержать только цифры.");
         cmd.type = CommandType::Use;
-        cmd.number = n;
+        cmd.number = std::get<int>(number);
+        return cmd;
+    }
+
+    if (first == "rule") {
+        if (words.size() < 2)
+            return error("[Ошибка] команда rule требует название правила.\nПравила: " + rules::names());
+        cmd.type = CommandType::CheatRule;
+        cmd.ruleName = words[1];
         return cmd;
     }
 
     if (first == "on" || first == "off" || first == "toggle") {
         if (words.size() < 2)
-            return error(std::string("[Ошибка] требуется название состояния.\nСостояния: ") + kStatusList);
-        if (!parseStatus(words[1], cmd.status))
+            return error("[Ошибка] требуется название состояния.\nСостояния: " + kStatusList);
+        const std::optional<HeroStatus> status = parseStatus(words[1]);
+        if (!status)
             return error("[Ошибка] Неизвестное состояние: " + words[1] +
                          "\nДоступные состояния: " + kStatusList);
+        cmd.status = *status;
         cmd.statusName = words[1];
         cmd.type = first == "on" ? CommandType::StatusOn
                  : first == "off" ? CommandType::StatusOff : CommandType::StatusToggle;
@@ -112,8 +134,10 @@ Command CommandParser::parse(const std::string& line) const {
         if (words.size() < 2) return error("[Ошибка] после go нужно направление: north, south, east, west.");
         dirWord = &words[1];
     }
-    if (parseDirection(*dirWord, cmd.direction, cmd.directionName)) {
+    if (const std::optional<ParsedDirection> parsed = parseDirection(*dirWord)) {
         cmd.type = CommandType::Move;
+        cmd.direction = parsed->direction;
+        cmd.directionName = parsed->name;
         return cmd;
     }
     if (first == "go") return error("[Ошибка] Неизвестное направление: " + *dirWord);

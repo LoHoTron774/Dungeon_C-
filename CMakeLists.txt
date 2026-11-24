@@ -15,6 +15,8 @@ add_executable(dungeon
         creature.cpp
         hero.cpp
         monsters.cpp
+        move_rules.cpp
+        monster_queries.cpp
         inventory.cpp
         lifecycle_log.cpp
 )

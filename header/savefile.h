@@ -1,7 +1,7 @@
 #ifndef SAVEFILE_H
 #define SAVEFILE_H
 
-#include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -26,19 +26,22 @@ struct SaveData {
     std::vector<InventorySlot> inventory;
 };
 
+class SaveFileError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 class SaveFile {
 public:
     explicit SaveFile(std::string path) : path_(std::move(path)) {}
 
     const std::string& path() const { return path_; }
-    const std::string& lastError() const { return error_; }
 
-    bool write(const SaveData& data);
-    std::optional<SaveData> read();
+    void write(const SaveData& data) const;
+    SaveData read() const;
 
 private:
     const std::string path_;
-    std::string error_;
 };
 
 #endif

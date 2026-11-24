@@ -2,8 +2,12 @@
 #include <iostream>
 #include <random>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -18,8 +22,10 @@ int main(int argc, char** argv) {
     std::string savePath;
     unsigned seed = std::random_device{}();
 
-    for (int i = 1; i < argc; ++i) {
-        const std::string arg = argv[i];
+    const std::vector<std::string> args(argv + 1, argv + argc);
+
+    for (std::size_t i = 0; i < args.size(); ++i) {
+        const std::string& arg = args[i];
         if (arg == "--demo") {
             lifetimeDemo();
             return 0;
@@ -27,11 +33,11 @@ int main(int argc, char** argv) {
             virtualDestructorDemo();
             return 0;
         } else if (arg == "--load-demo" || arg == "--seed" || arg == "--save") {
-            if (i + 1 >= argc) {
+            if (i + 1 >= args.size()) {
                 std::cerr << "[Ошибка] После " << arg << " нужен аргумент\n";
                 return 2;
             }
-            const std::string value = argv[++i];
+            const std::string& value = args[++i];
             if (arg == "--load-demo") {
                 loadDemo(value);
                 return 0;

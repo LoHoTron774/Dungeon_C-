@@ -8,8 +8,8 @@
 
 enum class CommandType {
     Empty, Quit, Help, Look, Stats, Inventory, New, Load, Save,
-    Move, Use, StatusOn, StatusOff, StatusToggle,
-    CheatHeroExit, CheatHesoyam, CheatDamage, CheatKill,
+    Move, Use, StatusOn, StatusOff, StatusToggle, Summary,
+    CheatHeroExit, CheatHesoyam, CheatDamage, CheatKill, CheatRule,
     Unknown,
     Error
 };
@@ -17,10 +17,11 @@ enum class CommandType {
 struct Command {
     CommandType type = CommandType::Unknown;
     Direction direction = Direction::North;
-    const char* directionName = "";
+    std::string directionName;
     int number = 0;
     HeroStatus status = HeroStatus::Poisoned;
     std::string statusName;
+    std::string ruleName;
     std::string message;
     bool showInventory = false;
 };

@@ -2,12 +2,15 @@
 
 #include <algorithm>
 #include <cctype>
-#include <cstdlib>
-#include <cstring>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 #include "header/lifecycle_log.h"
+
+namespace {
+constexpr std::string_view kReservedGlyphs = "#.GEZ ";
+}
 
 Creature::Creature(int y, int x, int hp, int maxHp, char glyph, int attack, std::string name)
     : y_(y), x_(x), health_(hp), maxHealth_(maxHp), attack_(attack), glyph_(glyph), name_(std::move(name)) {
@@ -15,7 +18,7 @@ Creature::Creature(int y, int x, int hp, int maxHp, char glyph, int attack, std:
     if (hp <= 0 || hp > maxHp) throw std::invalid_argument("здоровье должно быть в пределах от 1 до максимума");
     if (attack_ < 0) throw std::invalid_argument("сила атаки не может быть отрицательной");
     if (name_.empty()) throw std::invalid_argument("у существа должно быть имя");
-    if (!std::isprint(static_cast<unsigned char>(glyph)) || std::strchr("#.GEZ ", glyph) != nullptr)
+    if (!std::isprint(static_cast<unsigned char>(glyph)) || kReservedGlyphs.find(glyph) != std::string_view::npos)
         throw std::invalid_argument("символ существа печатный и не совпадает с символами клеток");
     lifecycle::log("Creature ctor", this);
 }
@@ -55,5 +58,5 @@ bool Creature::tryStep(World& world, Direction d) {
 }
 
 bool Creature::adjacentTo(const Creature& other) const {
-    return std::abs(y_ - other.y_) + std::abs(x_ - other.x_) == 1;
+    return manhattan(Position{y_, x_}, Position{other.y_, other.x_}) == 1;
 }

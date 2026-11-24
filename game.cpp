@@ -1,23 +1,29 @@
 #include "header/game.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <new>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
+
+#include "header/fp.h"
 
 namespace {
 
-constexpr const char* kLegend =
+constexpr std::string_view kLegend =
     "'#' - стена; '.' - пол; '@' - герой; 'G' - золото; 'Z' - зелье; 'E' - выход на следующий этаж\n"
     "Монстры: 'W' - волк (преследует), 'R' - крыса (блуждает), 'S' - страж (стоит на месте)\n"
     "Чтобы ударить монстра, идите в его сторону.\n";
 
-constexpr const char* kCommands =
+constexpr std::string_view kCommands =
     "Доступные команды:\n"
     "   north, south, east, west - Перемещение (можно n, s, e, w или go north)\n"
     "   stats                    - Характеристики героя\n"
@@ -27,6 +33,9 @@ constexpr const char* kCommands =
     "   off <state>              - Выключить состояние\n"
     "   toggle <state>           - Переключить состояние\n"
     "   Состояния: poisoned, blinded, invisible, petrified, burning, sleep\n"
+    "   summary                  - Сводка по монстрам\n"
+    "   rule <name>              - (отладка) Сменить правило хода всех монстров\n"
+    "   Правила: toward, away, stay, wander, drunk\n"
     "   look                     - Осмотреться\n"
     "   help                     - Показать команды\n"
     "   new                      - Новая игра\n"
@@ -40,13 +49,14 @@ std::string percent(int value, int max) {
     return os.str();
 }
 
-constexpr const char* kDeathMenu =
+constexpr std::string_view kDeathMenu =
     "Что дальше?\n"
     "   load - загрузить последнее сохранение\n"
     "   new  - начать новую игру\n"
     "   quit - выйти\n";
 
 constexpr int kKillReward = 2;
+constexpr int kNearDistance = 3;
 
 }
 
@@ -54,8 +64,7 @@ Game::Game(std::mt19937 rng, const std::string& levelPath) : rng_(std::move(rng)
     if (levelPath.empty()) {
         map_ = buildFloor(6, 12, 0);
     } else {
-        const LoadError e = Map::load(levelPath, map_);
-        if (e != LoadError::Ok) throw std::runtime_error(describe(e));
+        map_ = Map::load(levelPath);
     }
     hero_ = std::make_unique<Hero>(1, 1, 100);
     monsters_ = buildMonsters(*map_, Position{1, 1}, 0);
@@ -77,11 +86,11 @@ std::vector<std::unique_ptr<Monster>> Game::buildMonsters(const Map& map, Positi
                 candidates.push_back(Position{y, x});
     std::shuffle(candidates.begin(), candidates.end(), rng_);
 
-    const size_t wanted = static_cast<size_t>(4 + 2 * floor + randomInt(0, 2));
-    const size_t n = std::min(wanted, candidates.size());
+    const std::size_t wanted = static_cast<std::size_t>(4 + 2 * floor + randomInt(0, 2));
+    const std::size_t n = std::min(wanted, candidates.size());
 
     std::vector<std::unique_ptr<Monster>> result;
-    for (size_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
         const MonsterKind kind = static_cast<MonsterKind>(i % MonsterFactory::kKindCount);
         const MonsterSpec s = MonsterFactory::spec(kind);
         result.push_back(MonsterFactory::create(kind, candidates[i].y, candidates[i].x,
@@ -93,9 +102,10 @@ std::vector<std::unique_ptr<Monster>> Game::buildMonsters(const Map& map, Positi
 
 const Creature* Game::find(int y, int x) const {
     if (hero_->y() == y && hero_->x() == x) return hero_.get();
-    for (const auto& m : monsters_)
-        if (m->y() == y && m->x() == x) return m.get();
-    return nullptr;
+    const auto it = std::find_if(monsters_.begin(), monsters_.end(), [y, x](const std::unique_ptr<Monster>& m) {
+        return m->y() == y && m->x() == x;
+    });
+    return it == monsters_.end() ? nullptr : it->get();
 }
 
 bool Game::isFree(int y, int x) const {
@@ -212,8 +222,15 @@ void Game::handle(const Command& cmd) {
         case CommandType::CheatDamage:
             cheatDamage();
             break;
+        case CommandType::CheatRule:
+            cheatRule(cmd.ruleName);
+            break;
+        case CommandType::Summary:
+            showSummary();
+            break;
         case CommandType::CheatKill:
             cheatKill();
+            break;
         case CommandType::Error:
             say(cmd.message);
             if (cmd.showInventory) inventory_.print(std::cout);
@@ -247,7 +264,7 @@ void Game::heroMove(const Command& cmd) {
             descend();
             return;
         }
-        say(std::string("Ты пошёл на ") + cmd.directionName);
+        say("Ты пошёл на " + cmd.directionName);
     }
     removeDead();
     endTurn();
@@ -264,7 +281,7 @@ bool Game::onHeroEntered() {
         case Map::Item::Potion: {
             const PotionType t = static_cast<PotionType>(randomInt(1, 4));
             if (inventory_.add(t, 1))
-                say(std::string("Вы нашли зелье: ") + Inventory::name(t) + "!");
+                say("Вы нашли зелье: " + Inventory::name(t) + "!");
             else
                 say("Инвентарь полон! Вы нашли зелье, но не смогли его подобрать.");
             break;
@@ -336,20 +353,49 @@ void Game::cheatKill() {
 void Game::cheatDamage() {
     say("чит активирован");
     if (inventory_.add(PotionType::Strength, 1))
-        say(std::string("Вы нашли зелье: ") + Inventory::name(PotionType::Strength));
+        say("Вы нашли зелье: " + Inventory::name(PotionType::Strength));
     else
         say("Инвентарь полон!");
 }
 
+void Game::cheatRule(const std::string& name) {
+    const std::optional<MoveRule> rule = rules::byName(name);
+    if (!rule) {
+        say("[Ошибка] Неизвестное правило: " + name + "\nДоступные правила: " + rules::names());
+        return;
+    }
+    say("чит активирован");
+    std::for_each(monsters_.begin(), monsters_.end(), [&rule](const std::unique_ptr<Monster>& m) {
+        m->setRule(*rule);
+    });
+    say("Правило хода \"" + name + "\" назначено монстрам: " + std::to_string(monsters_.size()));
+}
+
+void Game::showSummary() const {
+    const queries::Summary s = queries::summarize(queries::view(monsters_),
+                                                  Position{hero_->y(), hero_->x()}, kNearDistance);
+    std::ostringstream symbols;
+    std::copy(s.symbols.begin(), s.symbols.end(), std::ostream_iterator<char>(symbols, " "));
+
+    std::cout << "____Сводка по монстрам____\n"
+              << "Живых монстров: " << s.alive << "\n"
+              << "Рядом (не дальше " << kNearDistance << " клеток): " << s.nearby << "\n"
+              << "Суммарное здоровье: " << s.totalHealth << "\n"
+              << "Суммарный урон за ход: " << s.totalDamage << " (от тех, кто рядом: " << s.nearbyDamage << ")\n"
+              << "Символы: " << symbols.str() << "\n";
+}
+
 void Game::removeDead() {
-    for (const auto& m : monsters_) {
-        if (m->isAlive()) continue;
+    const MonsterView dead = queries::select(queries::view(monsters_), queries::isDead());
+    std::for_each(dead.begin(), dead.end(), [this](const Monster* m) {
         say(m->name() + " повержен!");
         hero_->addGold(kKillReward);
         say("Вы получили " + std::to_string(kKillReward) + " золота. Всего золота: " + std::to_string(hero_->gold()));
-    }
+    });
     monsters_.erase(std::remove_if(monsters_.begin(), monsters_.end(),
-                                   [](const std::unique_ptr<Monster>& m) { return !m->isAlive(); }),
+                                   [isDead = queries::isDead()](const std::unique_ptr<Monster>& m) {
+                                       return isDead(*m);
+                                   }),
                     monsters_.end());
 }
 
@@ -370,9 +416,9 @@ void Game::endTurn() {
 }
 
 void Game::draw() const {
-    std::vector<const Creature*> monsters;
-    monsters.reserve(monsters_.size());
-    for (const auto& m : monsters_) monsters.push_back(m.get());
+    const std::vector<const Creature*> monsters = fp::map(monsters_, [](const std::unique_ptr<Monster>& m) -> const Creature* {
+        return m.get();
+    });
     renderer_.draw(std::cout, *map_, monsters, *hero_);
 }
 
@@ -454,64 +500,55 @@ SaveData Game::makeSaveData() const {
 }
 
 bool Game::saveGame() {
-    SaveFile file(savePath_);
-    if (file.write(makeSaveData())) {
-        say("Игра сохранена в " + savePath_);
-        return true;
-    }
-    say("[Ошибка] Ошибка сохранения! " + file.lastError());
-    return false;
-}
-
-bool Game::applySave(const SaveData& d, std::string& error) {
     try {
-        std::unique_ptr<Map> newMap;
-        const LoadError e = Map::fromLines(d.mapLines, newMap);
-        if (e != LoadError::Ok) { error = describe(e); return false; }
-
-        std::unique_ptr<Hero> newHero = std::make_unique<Hero>(d.hero);
-        Inventory newInventory(d.inventory);
-        if (d.floor < 0 || d.turn < 1) { error = "неверный номер этажа или хода"; return false; }
-
-        std::set<std::pair<int, int>> taken;
-        auto place = [&](const Creature& c) {
-            return newMap->isPassable(c.y(), c.x()) && taken.insert({c.y(), c.x()}).second;
-        };
-        if (!place(*newHero)) { error = "герой стоит в стене или за пределами карты"; return false; }
-
-        std::vector<std::unique_ptr<Monster>> newMonsters;
-        for (const MonsterRecord& r : d.monsters) {
-            std::unique_ptr<Monster> m = MonsterFactory::create(r.kind, r.y, r.x, r.hp, r.attack);
-            if (!place(*m)) { error = "монстр стоит в стене, за пределами карты или в занятой клетке"; return false; }
-            newMonsters.push_back(std::move(m));
-        }
-
-        map_ = std::move(newMap);
-        hero_ = std::move(newHero);
-        monsters_ = std::move(newMonsters);
-        inventory_ = std::move(newInventory);
-        floor_ = d.floor;
-        turn_ = d.turn;
-        dead_ = false;
-        return true;
-    } catch (const std::exception& ex) {
-        error = ex.what();
+        SaveFile(savePath_).write(makeSaveData());
+    } catch (const std::exception& e) {
+        say(std::string("[Ошибка] Ошибка сохранения! ") + e.what());
         return false;
     }
+    say("Игра сохранена в " + savePath_);
+    return true;
+}
+
+void Game::applySave(const SaveData& d) {
+    std::unique_ptr<Map> newMap = Map::fromLines(d.mapLines);
+    std::unique_ptr<Hero> newHero = std::make_unique<Hero>(d.hero);
+    Inventory newInventory(d.inventory);
+    if (d.floor < 0 || d.turn < 1) throw std::runtime_error("неверный номер этажа или хода");
+
+    std::set<std::pair<int, int>> taken;
+    auto place = [&](const Creature& c) {
+        return newMap->isPassable(c.y(), c.x()) && taken.insert({c.y(), c.x()}).second;
+    };
+    if (!place(*newHero)) throw std::runtime_error("герой стоит в стене или за пределами карты");
+
+    std::vector<std::unique_ptr<Monster>> newMonsters;
+    for (const MonsterRecord& r : d.monsters) {
+        std::unique_ptr<Monster> m = MonsterFactory::create(r.kind, r.y, r.x, r.hp, r.attack);
+        if (!place(*m)) throw std::runtime_error("монстр стоит в стене, за пределами карты или в занятой клетке");
+        newMonsters.push_back(std::move(m));
+    }
+
+    map_ = std::move(newMap);
+    hero_ = std::move(newHero);
+    monsters_ = std::move(newMonsters);
+    inventory_ = std::move(newInventory);
+    floor_ = d.floor;
+    turn_ = d.turn;
+    dead_ = false;
 }
 
 void Game::loadGame() {
-    SaveFile file(savePath_);
-    const std::optional<SaveData> data = file.read();
-    std::string error = file.lastError();
-    if (data && applySave(*data, error)) {
-        say("[Загрузка] Сохранённый прогресс восстановлен!");
-        say("Вы на " + std::to_string(floor_) + " этаже подземелья");
-        draw();
-        showStats();
-        inventory_.print(std::cout);
+    try {
+        applySave(SaveFile(savePath_).read());
+    } catch (const std::exception& e) {
+        say("[Ошибка] Не удалось загрузить сохранение. Проверьте файл.");
+        say(e.what());
         return;
     }
-    say("[Ошибка] Не удалось загрузить сохранение. Проверьте файл.");
-    say(error);
+    say("[Загрузка] Сохранённый прогресс восстановлен!");
+    say("Вы на " + std::to_string(floor_) + " этаже подземелья");
+    draw();
+    showStats();
+    inventory_.print(std::cout);
 }

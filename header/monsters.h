@@ -6,6 +6,7 @@
 #include <string>
 
 #include "creature.h"
+#include "move_rules.h"
 
 enum class MonsterKind { Wolf, Rat, Sentinel };
 
@@ -20,13 +21,19 @@ public:
 
     virtual MonsterKind kind() const = 0;
 
-protected:
-    Monster(int y, int x, int hp, char glyph, int attack, std::string name);
+    void setRule(MoveRule rule);
+    void takeTurn(World& world) override;
 
-    bool strikeIfAdjacent(World& world, const std::string& verb);
+protected:
+    Monster(int y, int x, int hp, char glyph, int attack, std::string name, std::string verb, MoveRule rule);
 
 private:
+    bool strikeIfAdjacent(World& world);
+
     static int created_;
+
+    std::string verb_;
+    MoveRule rule_;
 };
 
 class Wolf final : public Monster {
@@ -34,7 +41,6 @@ public:
     Wolf(int y, int x, int hp, int attack);
     ~Wolf() override;
     MonsterKind kind() const override { return MonsterKind::Wolf; }
-    void takeTurn(World& world) override;
 };
 
 class Rat final : public Monster {
@@ -42,7 +48,6 @@ public:
     Rat(int y, int x, int hp, int attack);
     ~Rat() override;
     MonsterKind kind() const override { return MonsterKind::Rat; }
-    void takeTurn(World& world) override;
 };
 
 class Sentinel final : public Monster {
@@ -50,7 +55,6 @@ public:
     Sentinel(int y, int x, int hp, int attack);
     ~Sentinel() override;
     MonsterKind kind() const override { return MonsterKind::Sentinel; }
-    void takeTurn(World& world) override;
 };
 
 class MonsterFactory {
@@ -59,7 +63,7 @@ public:
 
     static std::unique_ptr<Monster> create(MonsterKind kind, int y, int x, int hp, int attack);
     static MonsterSpec spec(MonsterKind kind);
-    static const char* token(MonsterKind kind);
+    static std::string token(MonsterKind kind);
     static std::optional<MonsterKind> parse(const std::string& token);
 };
 

@@ -1,14 +1,24 @@
 #include "header/savefile.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <string_view>
 
 #include "header/map.h"
 
-bool SaveFile::write(const SaveData& d) {
+namespace {
+
+[[noreturn]] void fail(const std::string& why) {
+    throw SaveFileError("Повреждённый файл сохранения: " + why);
+}
+
+}
+
+void SaveFile::write(const SaveData& d) const {
     namespace fs = std::filesystem;
-    error_.clear();
 
     std::error_code ec;
     const fs::path target(path_);
@@ -17,7 +27,7 @@ bool SaveFile::write(const SaveData& d) {
     const std::string tmpPath = path_ + ".tmp";
     {
         std::ofstream f(tmpPath, std::ios::trunc);
-        if (!f) { error_ = "Не удалось открыть файл для сохранения: " + tmpPath; return false; }
+        if (!f) throw SaveFileError("Не удалось открыть файл для сохранения: " + tmpPath);
 
         f << "MAP_SIZE " << d.mapLines.size() << ' ' << (d.mapLines.empty() ? 0 : d.mapLines[0].size()) << '\n';
         for (const std::string& line : d.mapLines) f << line << '\n';
@@ -39,76 +49,69 @@ bool SaveFile::write(const SaveData& d) {
 
         f.flush();
         if (!f) {
-            error_ = "Ошибка записи: возможно, диск заполнен";
             f.close();
             fs::remove(tmpPath, ec);
-            return false;
+            throw SaveFileError("Ошибка записи: возможно, диск заполнен");
         }
     }
 
     fs::rename(tmpPath, target, ec);
     if (ec) {
-        error_ = "Не удалось заменить файл сохранения: " + ec.message();
+        const std::string reason = ec.message();
         fs::remove(tmpPath, ec);
-        return false;
+        throw SaveFileError("Не удалось заменить файл сохранения: " + reason);
     }
-    return true;
 }
 
-std::optional<SaveData> SaveFile::read() {
-    error_.clear();
+SaveData SaveFile::read() const {
     std::ifstream in(path_);
-    if (!in) { error_ = "Не удалось открыть файл для загрузки: " + path_; return std::nullopt; }
+    if (!in) throw SaveFileError("Не удалось открыть файл для загрузки: " + path_);
 
-    auto fail = [this](const std::string& why) -> std::optional<SaveData> {
-        error_ = "Повреждённый файл сохранения: " + why;
-        return std::nullopt;
-    };
     std::string token;
-    auto expect = [&](const char* keyword) { return (in >> token) && token == keyword; };
+    auto expect = [&](std::string_view keyword) { return (in >> token) && token == keyword; };
 
     SaveData d;
 
     int rows = 0, cols = 0;
-    if (!expect("MAP_SIZE") || !(in >> rows >> cols)) return fail("нет MAP_SIZE");
+    if (!expect("MAP_SIZE") || !(in >> rows >> cols)) fail("нет MAP_SIZE");
     if (rows < Map::kMinSize || rows > Map::kMaxRows || cols < Map::kMinSize || cols > Map::kMaxCols)
-        return fail("недопустимые размеры карты");
-    d.mapLines.resize(static_cast<size_t>(rows));
+        fail("недопустимые размеры карты");
+    d.mapLines.resize(static_cast<std::size_t>(rows));
     for (std::string& line : d.mapLines) {
-        if (!(in >> line)) return fail("неожиданный конец файла при чтении карты");
-        if (static_cast<int>(line.size()) != cols) return fail("строка карты неверной длины");
+        if (!(in >> line)) fail("неожиданный конец файла при чтении карты");
+        if (static_cast<int>(line.size()) != cols) fail("строка карты неверной длины");
     }
 
-    size_t count = 0;
-    if (!expect("MONSTERS_COUNT") || !(in >> count)) return fail("нет MONSTERS_COUNT");
-    if (count > 10000) return fail("слишком много монстров");
-    for (size_t i = 0; i < count; ++i) {
+    std::size_t count = 0;
+    if (!expect("MONSTERS_COUNT") || !(in >> count)) fail("нет MONSTERS_COUNT");
+    if (count > 10000) fail("слишком много монстров");
+    for (std::size_t i = 0; i < count; ++i) {
         std::string kindToken;
         MonsterRecord m{};
         if (!expect("MONSTER") || !(in >> kindToken >> m.y >> m.x >> m.hp >> m.attack))
-            return fail("запись о монстре");
+            fail("запись о монстре");
         const std::optional<MonsterKind> kind = MonsterFactory::parse(kindToken);
-        if (!kind) return fail("неизвестный вид монстра: " + kindToken);
+        if (!kind) fail("неизвестный вид монстра: " + kindToken);
         m.kind = *kind;
         d.monsters.push_back(m);
     }
 
-    if (!expect("HERO_POS") || !(in >> d.hero.y >> d.hero.x)) return fail("нет HERO_POS");
+    if (!expect("HERO_POS") || !(in >> d.hero.y >> d.hero.x)) fail("нет HERO_POS");
     if (!expect("HERO_STATS") ||
         !(in >> d.hero.health >> d.hero.maxHealth >> d.hero.attack >> d.floor >> d.hero.gold >> d.hero.statuses))
-        return fail("нет HERO_STATS");
-    if (!expect("HERO_BUFF") || !(in >> d.hero.bonusAttack >> d.hero.bonusTurns)) return fail("нет HERO_BUFF");
+        fail("нет HERO_STATS");
+    if (!expect("HERO_BUFF") || !(in >> d.hero.bonusAttack >> d.hero.bonusTurns)) fail("нет HERO_BUFF");
 
     int slots = 0;
-    if (!expect("INVENTORY_SLOTS") || !(in >> slots)) return fail("нет INVENTORY_SLOTS");
-    if (slots < 0 || slots > Inventory::kSize) return fail("неверное число слотов инвентаря");
+    if (!expect("INVENTORY_SLOTS") || !(in >> slots)) fail("нет INVENTORY_SLOTS");
+    if (slots < 0 || slots > Inventory::kSize) fail("неверное число слотов инвентаря");
     for (int i = 0; i < slots; ++i) {
         int type = 0, cnt = 0;
-        if (!expect("ITEM") || !(in >> type >> cnt)) return fail("запись предмета");
+        if (!expect("ITEM") || !(in >> type >> cnt)) fail("запись предмета");
         d.inventory.push_back(InventorySlot{static_cast<PotionType>(type), cnt});
     }
 
-    if (!expect("GAME_STATS") || !(in >> d.turn)) return fail("нет GAME_STATS");
+    if (!expect("GAME_STATS") || !(in >> d.turn)) fail("нет GAME_STATS");
 
     return d;
 }

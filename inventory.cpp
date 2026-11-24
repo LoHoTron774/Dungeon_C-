@@ -1,10 +1,11 @@
 #include "header/inventory.h"
 
+#include <array>
 #include <iostream>
 #include <stdexcept>
 
 namespace {
-constexpr int kHeal[] = {0, 20, 45, 80};
+constexpr std::array<int, 4> kHeal{0, 20, 45, 80};
 }
 
 Inventory::Inventory(const std::vector<InventorySlot>& slots) {
@@ -31,13 +32,13 @@ bool Inventory::add(PotionType type, int amount) {
 
 std::optional<PotionEffect> Inventory::use(int index) {
     if (index < 0 || index >= slotCount()) return std::nullopt;
-    InventorySlot& slot = slots_[static_cast<size_t>(index)];
+    InventorySlot& slot = slots_[static_cast<std::size_t>(index)];
     if (slot.count <= 0) return std::nullopt;
     --slot.count;
 
     PotionEffect e;
     if (slot.type >= PotionType::HealSmall && slot.type <= PotionType::HealLarge) {
-        e.heal = kHeal[static_cast<int>(slot.type)];
+        e.heal = kHeal[static_cast<std::size_t>(slot.type)];
     } else {
         e.strengthTurns = 5;
         e.strengthBonus = 5;
@@ -45,7 +46,7 @@ std::optional<PotionEffect> Inventory::use(int index) {
     return e;
 }
 
-const char* Inventory::name(PotionType type) {
+std::string Inventory::name(PotionType type) {
     switch (type) {
         case PotionType::None:       return "пусто";
         case PotionType::HealSmall:  return "Зелье лечения малое +20 HP";
@@ -63,7 +64,7 @@ void Inventory::print(std::ostream& out) const {
         return;
     }
     for (int i = 0; i < slotCount(); ++i) {
-        const InventorySlot& s = slots_[static_cast<size_t>(i)];
+        const InventorySlot& s = slots_[static_cast<std::size_t>(i)];
         if (s.count <= 0) continue;
         out << (i + 1) << ". " << name(s.type) << " — " << s.count << " шт.\n";
     }

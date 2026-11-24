@@ -1,72 +1,53 @@
 #include "header/monsters.h"
 
-#include <cstdlib>
 #include <utility>
 
 #include "header/lifecycle_log.h"
 
 int Monster::created_ = 0;
 
-Monster::Monster(int y, int x, int hp, char glyph, int attack, std::string name)
-    : Creature(y, x, hp, hp, glyph, attack, std::move(name)) {
+Monster::Monster(int y, int x, int hp, char glyph, int attack, std::string name, std::string verb, MoveRule rule)
+    : Creature(y, x, hp, hp, glyph, attack, std::move(name)), verb_(std::move(verb)), rule_(std::move(rule)) {
     ++created_;
 }
 
-bool Monster::strikeIfAdjacent(World& world, const std::string& verb) {
+void Monster::setRule(MoveRule rule) {
+    rule_ = std::move(rule);
+}
+
+bool Monster::strikeIfAdjacent(World& world) {
     Creature& target = world.hero();
     if (!adjacentTo(target)) return false;
     target.takeDamage(attack());
-    world.say(name() + " " + verb + " вас на " + std::to_string(attack()) +
+    world.say(name() + " " + verb_ + " вас на " + std::to_string(attack()) +
               " урона. Ваше HP: " + std::to_string(target.health()));
     return true;
 }
 
-Wolf::Wolf(int y, int x, int hp, int attack) : Monster(y, x, hp, 'W', attack, "Волк") {
+void Monster::takeTurn(World& world) {
+    if (!isAlive()) return;
+    if (strikeIfAdjacent(world)) return;
+    if (!rule_) return;
+    if (const std::optional<Direction> step = rule_(*this, world)) tryStep(world, *step);
+}
+
+Wolf::Wolf(int y, int x, int hp, int attack)
+    : Monster(y, x, hp, 'W', attack, "Волк", "кусает", rules::towardHero()) {
     lifecycle::log("Wolf ctor", this);
 }
 Wolf::~Wolf() { lifecycle::log("Wolf dtor", this); }
 
-void Wolf::takeTurn(World& world) {
-    if (!isAlive()) return;
-    if (strikeIfAdjacent(world, "кусает")) return;
-
-    const Creature& h = world.hero();
-    const int dy = h.y() - y();
-    const int dx = h.x() - x();
-    const Direction vertical = dy < 0 ? Direction::North : Direction::South;
-    const Direction horizontal = dx < 0 ? Direction::West : Direction::East;
-
-    if (std::abs(dy) >= std::abs(dx)) {
-        if (dy != 0 && tryStep(world, vertical)) return;
-        if (dx != 0) tryStep(world, horizontal);
-    } else {
-        if (dx != 0 && tryStep(world, horizontal)) return;
-        if (dy != 0) tryStep(world, vertical);
-    }
-}
-
-Rat::Rat(int y, int x, int hp, int attack) : Monster(y, x, hp, 'R', attack, "Крыса") {
+Rat::Rat(int y, int x, int hp, int attack)
+    : Monster(y, x, hp, 'R', attack, "Крыса", "кусает", rules::randomWalk()) {
     lifecycle::log("Rat ctor", this);
 }
 Rat::~Rat() { lifecycle::log("Rat dtor", this); }
 
-void Rat::takeTurn(World& world) {
-    if (!isAlive()) return;
-    if (strikeIfAdjacent(world, "кусает")) return;
-
-    static const Direction all[] = {Direction::North, Direction::South, Direction::East, Direction::West};
-    tryStep(world, all[world.randomInt(0, 3)]);
-}
-
-Sentinel::Sentinel(int y, int x, int hp, int attack) : Monster(y, x, hp, 'S', attack, "Страж") {
+Sentinel::Sentinel(int y, int x, int hp, int attack)
+    : Monster(y, x, hp, 'S', attack, "Страж", "бьёт", rules::standStill()) {
     lifecycle::log("Sentinel ctor", this);
 }
 Sentinel::~Sentinel() { lifecycle::log("Sentinel dtor", this); }
-
-void Sentinel::takeTurn(World& world) {
-    if (!isAlive()) return;
-    strikeIfAdjacent(world, "бьёт");
-}
 
 std::unique_ptr<Monster> MonsterFactory::create(MonsterKind kind, int y, int x, int hp, int attack) {
     switch (kind) {
@@ -86,7 +67,7 @@ MonsterSpec MonsterFactory::spec(MonsterKind kind) {
     return MonsterSpec{10, 10, 3, 3};
 }
 
-const char* MonsterFactory::token(MonsterKind kind) {
+std::string MonsterFactory::token(MonsterKind kind) {
     switch (kind) {
         case MonsterKind::Wolf:     return "WOLF";
         case MonsterKind::Rat:      return "RAT";

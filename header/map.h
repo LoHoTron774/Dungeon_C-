@@ -4,20 +4,30 @@
 #include <memory>
 #include <optional>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "types.h"
 
 enum class LoadError {
-    Ok,
     FileNotFound,
     BadFormat,
     OutOfMemory,
     BadSize
 };
 
-const char* describe(LoadError e);
+std::string describe(LoadError e);
+
+class LevelLoadError : public std::runtime_error {
+public:
+    explicit LevelLoadError(LoadError code) : std::runtime_error(describe(code)), code_(code) {}
+
+    LoadError code() const noexcept { return code_; }
+
+private:
+    LoadError code_;
+};
 
 class Map {
 public:
@@ -44,8 +54,8 @@ public:
     Item takeItem(int y, int x);
     void generate(std::mt19937& rng, int goldCount, int potionCount);
 
-    [[nodiscard]] static LoadError fromLines(const std::vector<std::string>& lines, std::unique_ptr<Map>& out);
-    [[nodiscard]] static LoadError load(const std::string& path, std::unique_ptr<Map>& out);
+    [[nodiscard]] static std::unique_ptr<Map> fromLines(const std::vector<std::string>& lines);
+    [[nodiscard]] static std::unique_ptr<Map> load(const std::string& path);
 
 private:
     void set(int y, int x, char c);
@@ -53,7 +63,7 @@ private:
 
     int rows_ = 0;
     int cols_ = 0;
-    char* cells_ = nullptr;
+    std::vector<char> cells_;
 };
 
 #endif
