@@ -9,7 +9,7 @@
 enum class CommandType {
     Empty, Quit, Help, Look, Stats, Inventory, New, Load, Save,
     Move, Use, StatusOn, StatusOff, StatusToggle,
-    CheatHeroExit, CheatHesoyam, CheatDamage,
+    CheatHeroExit, CheatHesoyam, CheatDamage, CheatKill,
     Unknown,
     Error
 };

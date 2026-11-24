@@ -212,6 +212,8 @@ void Game::handle(const Command& cmd) {
         case CommandType::CheatDamage:
             cheatDamage();
             break;
+        case CommandType::CheatKill:
+            cheatKill();
         case CommandType::Error:
             say(cmd.message);
             if (cmd.showInventory) inventory_.print(std::cout);
@@ -323,6 +325,12 @@ void Game::cheatHeroExit() {
         say("чит активирован");
         descend();
     }
+}
+
+void Game::cheatKill() {
+    say("Чит активирован");
+    hero_->takeDamage(hero_->health());
+    endTurn();
 }
 
 void Game::cheatDamage() {

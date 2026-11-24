@@ -79,6 +79,7 @@ Command CommandParser::parse(const std::string& line) const {
     if (first == "heroexit")  { cmd.type = CommandType::CheatHeroExit; return cmd; }
     if (first == "hesoyam")   { cmd.type = CommandType::CheatHesoyam; return cmd; }
     if (first == "damage")    { cmd.type = CommandType::CheatDamage; return cmd; }
+    if (first == "kill")      { cmd.type = CommandType::CheatKill; return cmd; }
 
     if (first == "use") {
         if (words.size() < 2)

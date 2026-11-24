@@ -41,6 +41,7 @@ private:
     void showStats() const;
     void cheatHeroExit();
     void cheatDamage();
+    void cheatKill();
 
     std::unique_ptr<Map> buildFloor(int rows, int cols, int floor);
     std::vector<std::unique_ptr<Monster>> buildMonsters(const Map& map, Position heroPos, int floor);
